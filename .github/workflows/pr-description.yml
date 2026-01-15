@@ -1,0 +1,48 @@
+name: Automate PR Description
+
+on:
+  pull_request:
+    types: [opened, edited, synchronize]
+
+jobs:
+  generate-description:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v2
+      
+    - name: Set up Python environment
+      uses: actions/setup-python@v2
+      with:
+        python-version: '3.x'
+
+    - name: Install dependencies
+      run: |
+        pip install openai requests
+
+    - name: Get PR details
+      id: pr_details
+      run: |
+        PR_TITLE=$(jq --raw-output .pull_request.title $GITHUB_EVENT_PATH)
+        PR_BODY=$(jq --raw-output .pull_request.body $GITHUB_EVENT_PATH)
+        PR_COMMITS=$(curl -s "https://api.github.com/repos/$GITHUB_REPOSITORY/pulls/${{ github.event.pull_request.number }}/commits" | jq -r '.[].commit.message')
+        PR_FILES=$(curl -s "https://api.github.com/repos/$GITHUB_REPOSITORY/pulls/${{ github.event.pull_request.number }}/files" | jq -r '.[].filename')
+
+        echo "title=$PR_TITLE" >> $GITHUB_ENV
+        echo "body=$PR_BODY" >> $GITHUB_ENV
+        echo "commits=$PR_COMMITS" >> $GITHUB_ENV
+        echo "files=$PR_FILES" >> $GITHUB_ENV
+
+    - name: Generate AI-based PR description
+      id: ai_description
+      run: |
+        python generate_pr_description.py
+        echo "description=$(cat description.txt)" >> $GITHUB_ENV
+
+    - name: Update PR description with AI content
+      run: |
+        curl -X PATCH \
+          -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+          -d "{\"body\": \"$DESCRIPTION\"}" \
+          "https://api.github.com/repos/${GITHUB_REPOSITORY}/pulls/${{ github.event.pull_request.number }}"
